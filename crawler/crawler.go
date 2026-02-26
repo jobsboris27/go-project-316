@@ -302,5 +302,12 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 		pageReport.RawBody = nil
 	}
 
+	if pageReport.Status == "ok" && pageReport.BrokenLinks == nil {
+		pageReport.BrokenLinks = make([]BrokenLink, 0)
+	}
+	if pageReport.Status == "ok" && pageReport.SEO == nil {
+		pageReport.SEO = &SEOReport{}
+	}
+
 	return pageReport
 }
