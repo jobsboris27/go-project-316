@@ -129,7 +129,7 @@ func ProcessURL(ctx context.Context, pageURL string, depth int, rootHost string,
 			return Result{
 				Page:        page,
 				Links:       links,
-				ShouldQueue: depth+1 <= cfg.Depth,
+				ShouldQueue: depth < cfg.Depth,
 				NextDepth:   depth + 1,
 			}
 		}
