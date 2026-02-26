@@ -52,7 +52,8 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	visited := make(map[string]bool)
 	var visitedMu sync.Mutex
-	visited[opts.URL] = true
+	
+	visited[shared.NormalizeURL(rootURL)] = true
 
 	limiter := shared.NewRateLimiter(opts.Delay, opts.RPS)
 	if limiter != nil {
@@ -99,8 +100,8 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 					}
 
 					visitedMu.Lock()
-					if !visited[absoluteURL] {
-						visited[absoluteURL] = true
+					if !visited[shared.NormalizeURL(linkURL)] {
+						visited[shared.NormalizeURL(linkURL)] = true
 						select {
 						case jobChan <- job{url: absoluteURL, depth: res.Depth + 1}:
 							pending++

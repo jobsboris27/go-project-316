@@ -29,7 +29,7 @@ type Asset struct {
 	Type       string `json:"type"`
 	StatusCode int    `json:"status_code"`
 	SizeBytes  int64  `json:"size_bytes"`
-	Error      string `json:"error"`
+	Error      string `json:"error,omitempty"`
 }
 
 type SEOReport struct {
@@ -45,7 +45,7 @@ type PageReport struct {
 	Depth         int          `json:"depth"`
 	HTTPStatus    int          `json:"http_status"`
 	Status        string       `json:"status"`
-	Error         string       `json:"error"`
+	Error         string       `json:"error,omitempty"`
 	BrokenLinks   []BrokenLink `json:"broken_links"`
 	DiscoveredAt  string       `json:"discovered_at"`
 	SEO           *SEOReport   `json:"seo"`
