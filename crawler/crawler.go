@@ -40,7 +40,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		return report.Marshal(report.NewErrorReport(opts.URL, opts.Depth, err.Error()), opts.IndentJSON)
 	}
 
-	normalizedRootURL := shared.NormalizeURL(rootURL)
+	normalizedRootURL := opts.URL
 
 	visited := shared.NewVisitedSet()
 	queue := shared.NewURLQueue(normalizedRootURL)
@@ -67,12 +67,10 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			continue
 		}
 
-		normalizedItemURL := shared.NormalizeURLFromItem(item.URL)
-
-		if visited.Contains(normalizedItemURL) {
+		if visited.Contains(item.URL) {
 			continue
 		}
-		visited.Add(normalizedItemURL)
+		visited.Add(item.URL)
 
 		wg.Add(1)
 		semaphore <- struct{}{}
@@ -81,8 +79,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			defer wg.Done()
 			defer func() { <-semaphore }()
 
-			normalizedJobURL := shared.NormalizeURLFromItem(jobURL)
-			result := worker.ProcessURL(ctx, normalizedJobURL, jobDepth, rootURL.Host, cfg, checkerCfg)
+			result := worker.ProcessURL(ctx, jobURL, jobDepth, rootURL.Host, cfg, checkerCfg)
 			builder.AddPage(result.Page)
 
 			if result.ShouldQueue {
@@ -92,8 +89,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 					if err != nil || linkURL.Host != rootURL.Host {
 						continue
 					}
-					normalized := shared.NormalizeURL(linkURL)
-					if !visited.Contains(normalized) {
+					if !visited.Contains(link) {
 						toAdd = append(toAdd, shared.URLWithDepth{URL: link, Depth: result.NextDepth})
 					}
 				}

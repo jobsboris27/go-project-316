@@ -54,12 +54,8 @@ func TestAnalyze_Success(t *testing.T) {
 	}
 
 	page := result.Pages[0]
-	expectedURL := server.URL
-	if !strings.HasSuffix(expectedURL, "/") {
-		expectedURL = expectedURL + "/"
-	}
-	if page.URL != expectedURL {
-		t.Errorf("Page URL = %q, want %q", page.URL, expectedURL)
+	if page.URL != server.URL {
+		t.Errorf("Page URL = %q, want %q", page.URL, server.URL)
 	}
 
 	if page.HTTPStatus != http.StatusOK {
