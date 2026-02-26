@@ -3,6 +3,7 @@ package report
 import (
 	"encoding/json"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -38,7 +39,6 @@ type PageReport struct {
 	DiscoveredAt  string       `json:"discovered_at"`
 	SEO           *SEOReport   `json:"seo"`
 	Assets        []Asset      `json:"assets"`
-	RawBody       []byte       `json:"-"`
 }
 
 type Report struct {
@@ -46,6 +46,57 @@ type Report struct {
 	Depth       int          `json:"depth"`
 	GeneratedAt string       `json:"generated_at"`
 	Pages       []PageReport `json:"pages"`
+}
+
+type Builder struct {
+	report *Report
+	mu     sync.Mutex
+}
+
+func NewBuilder(rootURL string, depth int) *Builder {
+	return &Builder{
+		report: &Report{
+			RootURL:     rootURL,
+			Depth:       depth,
+			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+			Pages:       []PageReport{},
+		},
+	}
+}
+
+func (b *Builder) AddPage(page PageReport) {
+	if page.Error != "" {
+		page.BrokenLinks = nil
+		page.Assets = nil
+	} else {
+		if page.BrokenLinks == nil {
+			page.BrokenLinks = []BrokenLink{}
+		}
+		if page.Assets == nil {
+			page.Assets = []Asset{}
+		}
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.report.Pages = append(b.report.Pages, page)
+}
+
+func (b *Builder) Encode(indent bool) ([]byte, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	sort.SliceStable(b.report.Pages, func(i, j int) bool {
+		if b.report.Pages[i].Depth != b.report.Pages[j].Depth {
+			return b.report.Pages[i].Depth < b.report.Pages[j].Depth
+		}
+		return b.report.Pages[i].URL < b.report.Pages[j].URL
+	})
+
+	if indent {
+		return json.MarshalIndent(b.report, "", "  ")
+	}
+	return json.Marshal(b.report)
 }
 
 func NewPageReport(url string, depth int) PageReport {
@@ -67,10 +118,10 @@ func NewErrorReport(rootURL string, depth int, errMsg string) Report {
 				Depth:        0,
 				Status:       "error",
 				Error:        errMsg,
-				BrokenLinks:  make([]BrokenLink, 0),
+				BrokenLinks:  nil,
 				DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
 				SEO:          &SEOReport{},
-				Assets:       make([]Asset, 0),
+				Assets:       nil,
 			},
 		},
 	}
