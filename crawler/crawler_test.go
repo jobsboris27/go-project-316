@@ -808,7 +808,7 @@ func TestAnalyze_DepthOne(t *testing.T) {
 
 	opts := Options{
 		URL:         mainServer.URL,
-		Depth:       1,
+		Depth:       2,
 		Retries:     1,
 		Delay:       0,
 		Timeout:     5 * time.Second,
@@ -925,7 +925,7 @@ func TestAnalyze_DuplicateLinks(t *testing.T) {
 
 	opts := Options{
 		URL:         mainServer.URL,
-		Depth:       1,
+		Depth:       2,
 		Retries:     1,
 		Delay:       0,
 		Timeout:     5 * time.Second,
