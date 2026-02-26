@@ -45,11 +45,11 @@ type PageReport struct {
 	Depth         int          `json:"depth"`
 	HTTPStatus    int          `json:"http_status"`
 	Status        string       `json:"status"`
-	Error         string       `json:"error,omitempty"`
-	BrokenLinks   []BrokenLink `json:"broken_links,omitempty"`
-	DiscoveredAt  string       `json:"discovered_at,omitempty"`
-	SEO           *SEOReport   `json:"seo,omitempty"`
-	Assets        []Asset      `json:"assets,omitempty"`
+	Error         string       `json:"error"`
+	BrokenLinks   []BrokenLink `json:"broken_links"`
+	DiscoveredAt  string       `json:"discovered_at"`
+	SEO           *SEOReport   `json:"seo"`
+	Assets        []Asset      `json:"assets"`
 	RawBody       []byte       `json:"-"`
 }
 

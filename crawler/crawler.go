@@ -166,10 +166,13 @@ func createErrorReport(rootURL string, depth int, errMsg string) Report {
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Pages: []PageReport{
 			{
-				URL:    rootURL,
-				Depth:  0,
-				Status: "error",
-				Error:  errMsg,
+				URL:         rootURL,
+				Depth:       0,
+				Status:      "error",
+				Error:       errMsg,
+				BrokenLinks: make([]BrokenLink, 0),
+				SEO:         &SEOReport{},
+				Assets:      make([]Asset, 0),
 			},
 		},
 	}
@@ -180,6 +183,9 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 		URL:          pageURL,
 		Depth:        depth,
 		DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
+		BrokenLinks:  make([]BrokenLink, 0),
+		SEO:          &SEOReport{},
+		Assets:       make([]Asset, 0),
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -249,16 +255,10 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 		if err == nil {
 			pageReport.RawBody = body
 			pageReport.SEO = parseSEO(bytes.NewReader(body))
-			pageReport.BrokenLinks = make([]BrokenLink, 0)
 			links := checkLinks(ctx, opts, pageURL, body, rootHost)
-			if links != nil {
-				pageReport.BrokenLinks = append(pageReport.BrokenLinks, links...)
-			}
-			pageReport.Assets = make([]Asset, 0)
+			pageReport.BrokenLinks = append(pageReport.BrokenLinks, links...)
 			assets := checkAssets(ctx, opts, pageURL, body)
-			if assets != nil {
-				pageReport.Assets = append(pageReport.Assets, assets...)
-			}
+			pageReport.Assets = append(pageReport.Assets, assets...)
 		}
 	}
 
