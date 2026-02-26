@@ -107,29 +107,26 @@ func ParseSEO(r io.Reader) *SEOReport {
 func ParseHTMLLinks(r io.Reader) ([]string, error) {
 	var links []string
 
-	tokenizer := html.NewTokenizer(r)
+	doc, err := html.Parse(r)
+	if err != nil {
+		return links, err
+	}
 
-	for {
-		tokenType := tokenizer.Next()
-
-		if tokenType == html.ErrorToken {
-			if tokenizer.Err() == io.EOF {
-				break
-			}
-			return links, tokenizer.Err()
-		}
-
-		if tokenType == html.StartTagToken || tokenType == html.SelfClosingTagToken {
-			token := tokenizer.Token()
-			if token.Data == "a" {
-				for _, attr := range token.Attr {
-					if attr.Key == "href" && attr.Val != "" {
-						links = append(links, attr.Val)
-					}
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "a" {
+			for _, attr := range n.Attr {
+				if attr.Key == "href" && attr.Val != "" {
+					links = append(links, attr.Val)
 				}
 			}
 		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
 	}
+
+	walk(doc)
 
 	return links, nil
 }
@@ -137,36 +134,30 @@ func ParseHTMLLinks(r io.Reader) ([]string, error) {
 func ParseAssets(r io.Reader) []AssetInfo {
 	var assets []AssetInfo
 
-	tokenizer := html.NewTokenizer(r)
+	doc, err := html.Parse(r)
+	if err != nil {
+		return assets
+	}
 
-	for {
-		tokenType := tokenizer.Next()
-
-		if tokenType == html.ErrorToken {
-			break
-		}
-
-		if tokenType == html.StartTagToken || tokenType == html.SelfClosingTagToken {
-			token := tokenizer.Token()
-
-			switch token.Data {
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			switch n.Data {
 			case "img":
-				for _, attr := range token.Attr {
+				for _, attr := range n.Attr {
 					if attr.Key == "src" && attr.Val != "" {
 						assets = append(assets, AssetInfo{URL: attr.Val, Type: "image"})
 					}
 				}
-
 			case "script":
-				for _, attr := range token.Attr {
+				for _, attr := range n.Attr {
 					if attr.Key == "src" && attr.Val != "" {
 						assets = append(assets, AssetInfo{URL: attr.Val, Type: "script"})
 					}
 				}
-
 			case "link":
 				var rel, href string
-				for _, attr := range token.Attr {
+				for _, attr := range n.Attr {
 					if attr.Key == "rel" {
 						rel = strings.ToLower(attr.Val)
 					}
@@ -179,7 +170,12 @@ func ParseAssets(r io.Reader) []AssetInfo {
 				}
 			}
 		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
 	}
+
+	walk(doc)
 
 	return assets
 }
