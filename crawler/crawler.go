@@ -152,6 +152,16 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	report.Sort(rep)
 
+	seen := make(map[string]bool)
+	uniquePages := make([]report.PageReport, 0, len(rep.Pages))
+	for _, page := range rep.Pages {
+		if !seen[page.URL] {
+			seen[page.URL] = true
+			uniquePages = append(uniquePages, page)
+		}
+	}
+	rep.Pages = uniquePages
+
 	return report.Marshal(rep, opts.IndentJSON)
 }
 
