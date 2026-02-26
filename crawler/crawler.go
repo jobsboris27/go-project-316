@@ -212,9 +212,6 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 		URL:          pageURL,
 		Depth:        depth,
 		DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
-		BrokenLinks:  make([]BrokenLink, 0),
-		SEO:          &SEOReport{},
-		Assets:       make([]Asset, 0),
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -298,9 +295,12 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 		if err == nil {
 			pageReport.RawBody = body
 			pageReport.SEO = parser.ParseSEO(bytes.NewReader(body))
+			pageReport.BrokenLinks = make([]BrokenLink, 0)
+			pageReport.Assets = make([]Asset, 0)
 		}
 	} else {
 		pageReport.RawBody = nil
+		pageReport.SEO = &SEOReport{}
 	}
 
 	return pageReport
