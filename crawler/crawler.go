@@ -309,6 +309,7 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 			pageReport.SEO = &SEOReport{}
 		}
 	}
+	// Для error страниц оставляем nil чтобы в JSON было null
 
 	return pageReport
 }
