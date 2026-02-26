@@ -120,9 +120,14 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 					visitedMu.Lock()
 					if !visited[shared.NormalizeURL(linkURL)] {
+						newDepth := res.Depth + 1
+						if newDepth > opts.Depth {
+							visitedMu.Unlock()
+							continue
+						}
 						visited[shared.NormalizeURL(linkURL)] = true
 						select {
-						case jobChan <- job{url: absoluteURL, depth: res.Depth + 1}:
+						case jobChan <- job{url: absoluteURL, depth: newDepth}:
 							pending++
 						case <-ctx.Done():
 							visitedMu.Unlock()
