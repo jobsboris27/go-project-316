@@ -93,6 +93,15 @@ func (b *Builder) Encode(indent bool) ([]byte, error) {
 		return b.report.Pages[i].URL < b.report.Pages[j].URL
 	})
 
+	for i := range b.report.Pages {
+		sort.SliceStable(b.report.Pages[i].Assets, func(j, k int) bool {
+			return b.report.Pages[i].Assets[j].Type < b.report.Pages[i].Assets[k].Type
+		})
+		sort.SliceStable(b.report.Pages[i].BrokenLinks, func(j, k int) bool {
+			return b.report.Pages[i].BrokenLinks[j].URL < b.report.Pages[i].BrokenLinks[k].URL
+		})
+	}
+
 	if indent {
 		return json.MarshalIndent(b.report, "", "  ")
 	}
