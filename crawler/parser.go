@@ -120,6 +120,7 @@ func (p *Parser) ParseSEO(r io.Reader) *SEOReport {
 
 	var titleText, descriptionText string
 	var foundTitle, foundDescription, foundH1 bool
+	var inChannel, inItem bool
 
 	tokenizer := html.NewTokenizer(r)
 
@@ -134,12 +135,24 @@ func (p *Parser) ParseSEO(r io.Reader) *SEOReport {
 			token := tokenizer.Token()
 
 			switch token.Data {
+			case "channel":
+				inChannel = true
+			case "item":
+				inItem = true
 			case "title":
 				if tokenizer.Next() == html.TextToken {
-					titleText = strings.TrimSpace(tokenizer.Token().Data)
-					foundTitle = true
+					titleVal := strings.TrimSpace(tokenizer.Token().Data)
+					if inChannel && !foundTitle {
+						titleText = titleVal
+						foundTitle = true
+					} else if inItem && !foundTitle {
+						titleText = titleVal
+						foundTitle = true
+					} else if !inChannel && !inItem {
+						titleText = titleVal
+						foundTitle = true
+					}
 				}
-
 			case "meta":
 				var name, content string
 				for _, attr := range token.Attr {
@@ -157,12 +170,16 @@ func (p *Parser) ParseSEO(r io.Reader) *SEOReport {
 
 			case "h1":
 				foundH1 = true
+			}
+		}
 
+		if tokenType == html.EndTagToken {
+			token := tokenizer.Token()
+			switch token.Data {
+			case "channel":
+				inChannel = false
 			case "item":
-				if tokenizer.Next() == html.TextToken {
-					titleText = strings.TrimSpace(tokenizer.Token().Data)
-					foundTitle = true
-				}
+				inItem = false
 			}
 		}
 	}
