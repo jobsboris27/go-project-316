@@ -200,10 +200,8 @@ func createErrorReport(rootURL string, depth int, errMsg string) Report {
 				Depth:        0,
 				Status:       "error",
 				Error:        errMsg,
-				BrokenLinks:  make([]BrokenLink, 0),
 				DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
 				SEO:          &SEOReport{},
-				Assets:       make([]Asset, 0),
 			},
 		},
 	}
