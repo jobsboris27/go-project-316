@@ -3,7 +3,6 @@ package crawler
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -33,7 +32,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	rootURL, err := url.Parse(opts.URL)
 	if err != nil {
-		return marshalReport(createErrorReport(opts.URL, opts.Depth, err.Error()), opts.IndentJSON)
+		return shared.MarshalReport(createErrorReport(opts.URL, opts.Depth, err.Error()), opts.IndentJSON)
 	}
 	rootHost := rootURL.Host
 
@@ -45,7 +44,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	}
 
 	if err := ctx.Err(); err != nil {
-		return marshalReport(report, opts.IndentJSON)
+		return shared.MarshalReport(report, opts.IndentJSON)
 	}
 
 	visited := make(map[string]bool)
@@ -85,8 +84,8 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 				baseURL, _ := url.Parse(res.URL)
 
 				for _, link := range links {
-					absoluteURL := resolveURL(baseURL, link)
-					if absoluteURL == "" || !isValidScheme(absoluteURL) {
+					absoluteURL := shared.ResolveURL(baseURL, link)
+					if absoluteURL == "" || !shared.IsValidScheme(absoluteURL) {
 						continue
 					}
 
@@ -133,7 +132,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	sortReport(report)
 
-	return marshalReport(report, opts.IndentJSON)
+	return shared.MarshalReport(report, opts.IndentJSON)
 }
 
 func sortReport(report Report) {
@@ -201,8 +200,10 @@ func createErrorReport(rootURL string, depth int, errMsg string) Report {
 				Depth:        0,
 				Status:       "error",
 				Error:        errMsg,
+				BrokenLinks:  make([]BrokenLink, 0),
 				DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
 				SEO:          &SEOReport{},
+				Assets:       make([]Asset, 0),
 			},
 		},
 	}
@@ -305,42 +306,4 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 	}
 
 	return pageReport
-}
-
-func resolveURL(base *url.URL, link string) string {
-	if link == "" {
-		return ""
-	}
-
-	parsed, err := url.Parse(link)
-	if err != nil {
-		return ""
-	}
-
-	if parsed.IsAbs() {
-		return link
-	}
-
-	resolved := base.ResolveReference(parsed)
-	return resolved.String()
-}
-
-func isValidScheme(u string) bool {
-	parsed, err := url.Parse(u)
-	if err != nil {
-		return false
-	}
-
-	if parsed.Scheme == "" {
-		return false
-	}
-
-	return parsed.Scheme == "http" || parsed.Scheme == "https"
-}
-
-func marshalReport(report Report, indent bool) ([]byte, error) {
-	if indent {
-		return json.MarshalIndent(report, "", "  ")
-	}
-	return json.Marshal(report)
 }

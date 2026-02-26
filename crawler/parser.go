@@ -186,8 +186,8 @@ func (p *Parser) CheckLinks(ctx context.Context, pageURL string, body []byte, ro
 	absoluteLinks := make([]string, 0)
 
 	for _, link := range links {
-		absoluteURL := resolveURL(baseURL, link)
-		if absoluteURL != "" && isValidScheme(absoluteURL) {
+		absoluteURL := shared.ResolveURL(baseURL, link)
+		if absoluteURL != "" && shared.IsValidScheme(absoluteURL) {
 			absoluteLinks = append(absoluteLinks, absoluteURL)
 		}
 	}
@@ -308,8 +308,8 @@ func (p *Parser) CheckAssets(ctx context.Context, pageURL string, body []byte, c
 	var wg sync.WaitGroup
 
 	for _, tag := range assetTags {
-		absoluteURL := resolveURL(baseURL, tag.URL)
-		if absoluteURL == "" || !isValidScheme(absoluteURL) {
+		absoluteURL := shared.ResolveURL(baseURL, tag.URL)
+		if absoluteURL == "" || !shared.IsValidScheme(absoluteURL) {
 			continue
 		}
 
