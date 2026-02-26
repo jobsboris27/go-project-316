@@ -3,15 +3,16 @@ package crawler
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
+	"code/internal/checker"
+	"code/internal/parser"
+	"code/internal/report"
 	"code/internal/shared"
 )
 
@@ -19,6 +20,25 @@ type job struct {
 	url   string
 	depth int
 }
+
+type Options struct {
+	URL         string
+	Depth       int
+	Retries     int
+	Delay       time.Duration
+	Timeout     time.Duration
+	UserAgent   string
+	Concurrency int
+	IndentJSON  bool
+	RPS         int
+	HTTPClient  *http.Client
+}
+
+type BrokenLink = report.BrokenLink
+type Asset = report.Asset
+type SEOReport = report.SEOReport
+type PageReport = report.PageReport
+type Report = report.Report
 
 func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	if opts.HTTPClient == nil {
@@ -33,24 +53,24 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	rootURL, err := url.Parse(opts.URL)
 	if err != nil {
-		return shared.MarshalReport(createErrorReport(opts.URL, opts.Depth, err.Error()), opts.IndentJSON)
+		return report.Marshal(report.NewErrorReport(opts.URL, opts.Depth, err.Error()), opts.IndentJSON)
 	}
 	rootHost := rootURL.Host
 
-	report := Report{
+	rep := report.Report{
 		RootURL:     opts.URL,
 		Depth:       opts.Depth,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-		Pages:       make([]PageReport, 0),
+		Pages:       make([]report.PageReport, 0),
 	}
 
 	if err := ctx.Err(); err != nil {
-		return shared.MarshalReport(report, opts.IndentJSON)
+		return report.Marshal(rep, opts.IndentJSON)
 	}
 
 	visited := make(map[string]bool)
 	var visitedMu sync.Mutex
-	
+
 	visited[shared.NormalizeURL(rootURL)] = true
 
 	limiter := shared.NewRateLimiter(opts.Delay, opts.RPS)
@@ -59,7 +79,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	}
 
 	jobChan := make(chan job, 100)
-	resultChan := make(chan PageReport, 100)
+	resultChan := make(chan report.PageReport, 100)
 
 	var wg sync.WaitGroup
 	for i := 0; i < opts.Concurrency; i++ {
@@ -77,10 +97,9 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	for !done && pending > 0 {
 		select {
 		case res := <-resultChan:
-			report.Pages = append(report.Pages, res)
+			rep.Pages = append(rep.Pages, res)
 
 			if res.Status == "ok" && res.Depth < opts.Depth && res.RawBody != nil && len(res.RawBody) > 0 {
-				parser := NewParser(opts.HTTPClient, opts.UserAgent, opts.Timeout)
 				links, _ := parser.ParseHTMLLinks(bytes.NewReader(res.RawBody))
 				baseURL, _ := url.Parse(res.URL)
 
@@ -131,38 +150,12 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 	wg.Wait()
 	close(resultChan)
 
-	sortReport(report)
+	report.Sort(rep)
 
-	return shared.MarshalReport(report, opts.IndentJSON)
+	return report.Marshal(rep, opts.IndentJSON)
 }
 
-func sortReport(report Report) {
-	sort.Slice(report.Pages, func(i, j int) bool {
-		if report.Pages[i].Depth != report.Pages[j].Depth {
-			return report.Pages[i].Depth < report.Pages[j].Depth
-		}
-		return report.Pages[i].URL < report.Pages[j].URL
-	})
-
-	for i := range report.Pages {
-		sortPage(&report.Pages[i])
-	}
-}
-
-func sortPage(page *PageReport) {
-	sort.Slice(page.Assets, func(i, j int) bool {
-		if page.Assets[i].Type != page.Assets[j].Type {
-			return page.Assets[i].Type < page.Assets[j].Type
-		}
-		return page.Assets[i].URL < page.Assets[j].URL
-	})
-
-	sort.Slice(page.BrokenLinks, func(i, j int) bool {
-		return page.BrokenLinks[i].URL < page.BrokenLinks[j].URL
-	})
-}
-
-func worker(ctx context.Context, opts Options, rootHost string, limiter *shared.RateLimiter, jobChan <-chan job, resultChan chan<- PageReport) {
+func worker(ctx context.Context, opts Options, rootHost string, limiter *shared.RateLimiter, jobChan <-chan job, resultChan chan<- report.PageReport) {
 	for j := range jobChan {
 		select {
 		case <-ctx.Done():
@@ -180,7 +173,7 @@ func worker(ctx context.Context, opts Options, rootHost string, limiter *shared.
 			}
 		}
 
-		pageReport := analyzePage(ctx, opts, j.url, j.depth, rootHost)
+		pageReport := analyzePage(ctx, opts, j.url, j.depth)
 
 		select {
 		case resultChan <- pageReport:
@@ -190,30 +183,8 @@ func worker(ctx context.Context, opts Options, rootHost string, limiter *shared.
 	}
 }
 
-func createErrorReport(rootURL string, depth int, errMsg string) Report {
-	return Report{
-		RootURL:     rootURL,
-		Depth:       depth,
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-		Pages: []PageReport{
-			{
-				URL:          rootURL,
-				Depth:        0,
-				Status:       "error",
-				Error:        errMsg,
-				DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
-				SEO:          &SEOReport{},
-			},
-		},
-	}
-}
-
-func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, rootHost string) PageReport {
-	pageReport := PageReport{
-		URL:          pageURL,
-		Depth:        depth,
-		DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
-	}
+func analyzePage(ctx context.Context, opts Options, pageURL string, depth int) report.PageReport {
+	pageReport := report.NewPageReport(pageURL, depth)
 
 	if err := ctx.Err(); err != nil {
 		pageReport.Status = "error"
@@ -277,26 +248,27 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 	pageReport.Status = "ok"
 
 	contentType := resp.Header.Get("Content-Type")
-	parser := NewParser(opts.HTTPClient, opts.UserAgent, opts.Timeout)
 
-	fmt.Printf("[DEBUG] analyzePage: URL=%s, ContentType=%s, Status=%d\n", pageURL, contentType, resp.StatusCode)
+	checkerCfg := checker.Config{
+		UserAgent:   opts.UserAgent,
+		Timeout:     opts.Timeout,
+		Concurrency: opts.Concurrency,
+		HTTPClient:  opts.HTTPClient,
+	}
 
 	if strings.Contains(contentType, "text/html") {
 		body, err := io.ReadAll(resp.Body)
 		if err == nil {
 			pageReport.RawBody = body
-			pageReport.SEO = parser.ParseSEO(bytes.NewReader(body))
-			fmt.Printf("[DEBUG] SEO: title=%q, hasTitle=%v\n", pageReport.SEO.Title, pageReport.SEO.HasTitle)
-			pageReport.BrokenLinks = parser.CheckLinks(ctx, pageURL, body, rootHost, opts.Concurrency)
-			pageReport.Assets = parser.CheckAssets(ctx, pageURL, body, opts.Concurrency)
-			fmt.Printf("[DEBUG] Assets count=%d, BrokenLinks count=%d\n", len(pageReport.Assets), len(pageReport.BrokenLinks))
+			pageReport.SEO = (*report.SEOReport)(parser.ParseSEO(bytes.NewReader(body)))
+			pageReport.BrokenLinks = toBrokenLinks(checker.CheckLinks(ctx, pageURL, body, checkerCfg))
+			pageReport.Assets = toAssets(checker.CheckAssets(ctx, pageURL, body, checkerCfg))
 		}
 	} else if strings.Contains(contentType, "application/xml") || strings.Contains(contentType, "text/xml") {
 		body, err := io.ReadAll(resp.Body)
 		if err == nil {
 			pageReport.RawBody = body
-			pageReport.SEO = parser.ParseSEO(bytes.NewReader(body))
-			fmt.Printf("[DEBUG] XML SEO: title=%q, hasTitle=%v\n", pageReport.SEO.Title, pageReport.SEO.HasTitle)
+			pageReport.SEO = (*report.SEOReport)(parser.ParseSEO(bytes.NewReader(body)))
 			pageReport.BrokenLinks = make([]BrokenLink, 0)
 			pageReport.Assets = make([]Asset, 0)
 		}
@@ -315,8 +287,36 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 			pageReport.SEO = &SEOReport{}
 		}
 	} else {
-		fmt.Printf("[DEBUG] ERROR page: status=%s, error=%s\n", pageReport.Status, pageReport.Error)
+		if pageReport.SEO == nil {
+			pageReport.SEO = &SEOReport{}
+		}
 	}
 
 	return pageReport
+}
+
+func toBrokenLinks(links []checker.BrokenLink) []BrokenLink {
+	result := make([]BrokenLink, len(links))
+	for i, link := range links {
+		result[i] = BrokenLink{
+			URL:        link.URL,
+			StatusCode: link.StatusCode,
+			Error:      link.Error,
+		}
+	}
+	return result
+}
+
+func toAssets(assets []checker.Asset) []Asset {
+	result := make([]Asset, len(assets))
+	for i, asset := range assets {
+		result[i] = Asset{
+			URL:        asset.URL,
+			Type:       asset.Type,
+			StatusCode: asset.StatusCode,
+			SizeBytes:  asset.SizeBytes,
+			Error:      asset.Error,
+		}
+	}
+	return result
 }
