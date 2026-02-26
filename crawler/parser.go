@@ -157,6 +157,12 @@ func (p *Parser) ParseSEO(r io.Reader) *SEOReport {
 
 			case "h1":
 				foundH1 = true
+
+			case "item":
+				if tokenizer.Next() == html.TextToken {
+					titleText = strings.TrimSpace(tokenizer.Token().Data)
+					foundTitle = true
+				}
 			}
 		}
 	}
