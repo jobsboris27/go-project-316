@@ -12,6 +12,7 @@ import (
 	"code/internal/checker"
 	"code/internal/parser"
 	"code/internal/report"
+	"code/internal/shared"
 )
 
 type Config struct {
@@ -31,8 +32,10 @@ type Result struct {
 }
 
 func ProcessURL(ctx context.Context, pageURL string, depth int, rootHost string, cfg Config, checkerCfg checker.Config) Result {
+	normalizedURL := shared.NormalizeURLFromItem(pageURL)
+	
 	page := report.PageReport{
-		URL:          pageURL,
+		URL:          normalizedURL,
 		Depth:        depth,
 		DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
 	}

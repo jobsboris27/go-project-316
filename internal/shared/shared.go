@@ -83,11 +83,14 @@ func Min(a, b int) int {
 }
 
 func NormalizeURL(u *url.URL) string {
-	normalized := u.String()
-	if u.Path == "" || u.Path == "/" {
-		normalized = u.Scheme + "://" + u.Host + "/"
+	normalized := *u
+	normalized.Fragment = ""
+
+	if normalized.Path == "/" {
+		normalized.Path = ""
 	}
-	return normalized
+
+	return normalized.String()
 }
 
 func NormalizeURLFromItem(urlStr string) string {
