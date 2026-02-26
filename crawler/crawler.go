@@ -166,13 +166,10 @@ func createErrorReport(rootURL string, depth int, errMsg string) Report {
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Pages: []PageReport{
 			{
-				URL:         rootURL,
-				Depth:       0,
-				Status:      "error",
-				Error:       errMsg,
-				BrokenLinks: make([]BrokenLink, 0),
-				SEO:         &SEOReport{},
-				Assets:      make([]Asset, 0),
+				URL:    rootURL,
+				Depth:  0,
+				Status: "error",
+				Error:  errMsg,
 			},
 		},
 	}
@@ -183,9 +180,6 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 		URL:          pageURL,
 		Depth:        depth,
 		DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
-		BrokenLinks:  make([]BrokenLink, 0),
-		SEO:          &SEOReport{},
-		Assets:       make([]Asset, 0),
 	}
 
 	if err := ctx.Err(); err != nil {
@@ -255,8 +249,16 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 		if err == nil {
 			pageReport.RawBody = body
 			pageReport.SEO = parseSEO(bytes.NewReader(body))
-			pageReport.BrokenLinks = checkLinks(ctx, opts, pageURL, body, rootHost)
-			pageReport.Assets = checkAssets(ctx, opts, pageURL, body)
+			pageReport.BrokenLinks = make([]BrokenLink, 0)
+			links := checkLinks(ctx, opts, pageURL, body, rootHost)
+			if links != nil {
+				pageReport.BrokenLinks = append(pageReport.BrokenLinks, links...)
+			}
+			pageReport.Assets = make([]Asset, 0)
+			assets := checkAssets(ctx, opts, pageURL, body)
+			if assets != nil {
+				pageReport.Assets = append(pageReport.Assets, assets...)
+			}
 		}
 	}
 
@@ -341,13 +343,13 @@ func checkLinks(ctx context.Context, opts Options, pageURL string, body []byte, 
 	}
 
 	if len(absoluteLinks) == 0 {
-		return nil
+		return make([]BrokenLink, 0)
 	}
 
 	semaphore := make(chan struct{}, opts.Concurrency)
 	var wg sync.WaitGroup
 	var brokenMu sync.Mutex
-	var broken []BrokenLink
+	broken := make([]BrokenLink, 0)
 
 	for _, link := range absoluteLinks {
 		select {
@@ -557,16 +559,16 @@ func parseAssets(r io.Reader) []assetTag {
 func checkAssets(ctx context.Context, opts Options, pageURL string, body []byte) []Asset {
 	baseURL, err := url.Parse(pageURL)
 	if err != nil {
-		return nil
+		return make([]Asset, 0)
 	}
 
 	assetTags := parseAssets(bytes.NewReader(body))
 	if len(assetTags) == 0 {
-		return nil
+		return make([]Asset, 0)
 	}
 
 	assetCache := make(map[string]Asset)
-	var assets []Asset
+	assets := make([]Asset, 0)
 	var mu sync.Mutex
 
 	semaphore := make(chan struct{}, opts.Concurrency)
