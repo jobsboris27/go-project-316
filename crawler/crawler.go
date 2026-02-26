@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -74,13 +75,14 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	jobChan <- job{url: opts.URL, depth: 0}
 	pending := 1
+	done := false
 
-	for {
+	for !done && pending > 0 {
 		select {
 		case res := <-resultChan:
 			report.Pages = append(report.Pages, res)
 
-			if res.Status == "ok" && res.Depth < opts.Depth && res.RawBody != nil {
+			if res.Status == "ok" && res.Depth < opts.Depth && res.RawBody != nil && len(res.RawBody) > 0 {
 				links, _ := parseHTMLLinks(bytes.NewReader(res.RawBody))
 				baseURL, _ := url.Parse(res.URL)
 
@@ -107,27 +109,45 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 							pending++
 						case <-ctx.Done():
 							visitedMu.Unlock()
-							goto drain
+							done = true
+							break
 						}
 					}
 					visitedMu.Unlock()
+
+					if done {
+						break
+					}
 				}
 			}
-			pending--
+			if !done {
+				pending--
+			}
 
 		case <-ctx.Done():
-			goto drain
-		}
-
-		if pending == 0 {
-			break
+			done = true
 		}
 	}
 
-drain:
 	close(jobChan)
 	wg.Wait()
 	close(resultChan)
+
+	sort.Slice(report.Pages, func(i, j int) bool {
+		if report.Pages[i].Depth != report.Pages[j].Depth {
+			return report.Pages[i].Depth < report.Pages[j].Depth
+		}
+		return report.Pages[i].URL < report.Pages[j].URL
+	})
+
+	for i := range report.Pages {
+		sort.Slice(report.Pages[i].Assets, func(j, k int) bool {
+			return report.Pages[i].Assets[j].URL < report.Pages[i].Assets[k].URL
+		})
+		sort.Slice(report.Pages[i].BrokenLinks, func(j, k int) bool {
+			return report.Pages[i].BrokenLinks[j].URL < report.Pages[i].BrokenLinks[k].URL
+		})
+	}
 
 	return marshalReport(report, opts.IndentJSON)
 }
@@ -261,6 +281,8 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 			assets := checkAssets(ctx, opts, pageURL, body)
 			pageReport.Assets = append(pageReport.Assets, assets...)
 		}
+	} else {
+		pageReport.RawBody = nil
 	}
 
 	return pageReport
