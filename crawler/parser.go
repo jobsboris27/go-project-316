@@ -3,6 +3,7 @@ package crawler
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -141,13 +142,16 @@ func (p *Parser) ParseSEO(r io.Reader) *SEOReport {
 			case "title":
 				if tokenizer.Next() == html.TextToken {
 					titleVal := strings.TrimSpace(tokenizer.Token().Data)
+					fmt.Printf("[DEBUG] ParseSEO: found title=%q inChannel=%v channelTitleFound=%v\n", titleVal, inChannel, channelTitleFound)
 					if inChannel && !channelTitleFound {
 						titleText = titleVal
 						foundTitle = true
 						channelTitleFound = true
+						fmt.Printf("[DEBUG] ParseSEO: SET channel title=%q\n", titleText)
 					} else if !channelTitleFound {
 						titleText = titleVal
 						foundTitle = true
+						fmt.Printf("[DEBUG] ParseSEO: SET fallback title=%q\n", titleText)
 					}
 				}
 			case "meta":
@@ -183,6 +187,8 @@ func (p *Parser) ParseSEO(r io.Reader) *SEOReport {
 	seo.HasDescription = foundDescription
 	seo.Description = descriptionText
 	seo.HasH1 = foundH1
+
+	fmt.Printf("[DEBUG] ParseSEO RESULT: title=%q, hasTitle=%v\n", seo.Title, seo.HasTitle)
 
 	return seo
 }

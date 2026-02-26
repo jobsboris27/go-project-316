@@ -3,6 +3,7 @@ package crawler
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -278,19 +279,24 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 	contentType := resp.Header.Get("Content-Type")
 	parser := NewParser(opts.HTTPClient, opts.UserAgent, opts.Timeout)
 
+	fmt.Printf("[DEBUG] analyzePage: URL=%s, ContentType=%s, Status=%d\n", pageURL, contentType, resp.StatusCode)
+
 	if strings.Contains(contentType, "text/html") {
 		body, err := io.ReadAll(resp.Body)
 		if err == nil {
 			pageReport.RawBody = body
 			pageReport.SEO = parser.ParseSEO(bytes.NewReader(body))
+			fmt.Printf("[DEBUG] SEO: title=%q, hasTitle=%v\n", pageReport.SEO.Title, pageReport.SEO.HasTitle)
 			pageReport.BrokenLinks = parser.CheckLinks(ctx, pageURL, body, rootHost, opts.Concurrency)
 			pageReport.Assets = parser.CheckAssets(ctx, pageURL, body, opts.Concurrency)
+			fmt.Printf("[DEBUG] Assets count=%d, BrokenLinks count=%d\n", len(pageReport.Assets), len(pageReport.BrokenLinks))
 		}
 	} else if strings.Contains(contentType, "application/xml") || strings.Contains(contentType, "text/xml") {
 		body, err := io.ReadAll(resp.Body)
 		if err == nil {
 			pageReport.RawBody = body
 			pageReport.SEO = parser.ParseSEO(bytes.NewReader(body))
+			fmt.Printf("[DEBUG] XML SEO: title=%q, hasTitle=%v\n", pageReport.SEO.Title, pageReport.SEO.HasTitle)
 			pageReport.BrokenLinks = make([]BrokenLink, 0)
 			pageReport.Assets = make([]Asset, 0)
 		}
@@ -308,8 +314,9 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 		if pageReport.SEO == nil {
 			pageReport.SEO = &SEOReport{}
 		}
+	} else {
+		fmt.Printf("[DEBUG] ERROR page: status=%s, error=%s\n", pageReport.Status, pageReport.Error)
 	}
-	// Для error страниц оставляем nil чтобы в JSON было null
 
 	return pageReport
 }
