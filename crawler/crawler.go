@@ -259,35 +259,31 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int) r
 		HTTPClient:  opts.HTTPClient,
 	}
 
-	if strings.Contains(contentType, "text/html") {
-		body, err := io.ReadAll(resp.Body)
-		if err == nil {
-			pageReport.RawBody = body
-			pageReport.SEO = (*report.SEOReport)(parser.ParseSEO(bytes.NewReader(body)))
-			pageURLParsed, _ := url.Parse(pageURL)
-			assetInfos := parser.ExtractAssets(string(body), pageURLParsed)
-			for _, ai := range assetInfos {
-				pageReport.Assets = append(pageReport.Assets, Asset{
-					URL:  ai.URL,
-					Type: ai.Type,
-				})
-			}
-			pageReport.BrokenLinks = toBrokenLinks(checker.CheckLinks(ctx, pageURL, body, checkerCfg))
-			pageReport.Assets = toAssets(checker.CheckAssets(ctx, pageURL, body, checkerCfg))
-		}
-	} else if strings.Contains(contentType, "application/xml") || strings.Contains(contentType, "text/xml") {
-		body, err := io.ReadAll(resp.Body)
-		if err == nil {
-			pageReport.RawBody = body
-			pageReport.SEO = (*report.SEOReport)(parser.ParseSEO(bytes.NewReader(body)))
-			pageReport.BrokenLinks = make([]BrokenLink, 0)
-			pageReport.Assets = make([]Asset, 0)
-		}
-	} else {
-		pageReport.RawBody = nil
-	}
-
 	if pageReport.Status == "ok" {
+		if strings.Contains(contentType, "text/html") {
+			body, err := io.ReadAll(resp.Body)
+			if err == nil {
+				pageReport.RawBody = body
+				pageReport.SEO = (*report.SEOReport)(parser.ParseSEO(bytes.NewReader(body)))
+				pageURLParsed, _ := url.Parse(pageURL)
+				assetInfos := parser.ExtractAssets(string(body), pageURLParsed)
+				for _, ai := range assetInfos {
+					pageReport.Assets = append(pageReport.Assets, Asset{
+						URL:  ai.URL,
+						Type: ai.Type,
+					})
+				}
+				pageReport.BrokenLinks = toBrokenLinks(checker.CheckLinks(ctx, pageURL, body, checkerCfg))
+				pageReport.Assets = toAssets(checker.CheckAssets(ctx, pageURL, body, checkerCfg))
+			}
+		} else if strings.Contains(contentType, "application/xml") || strings.Contains(contentType, "text/xml") {
+			body, err := io.ReadAll(resp.Body)
+			if err == nil {
+				pageReport.RawBody = body
+				pageReport.SEO = (*report.SEOReport)(parser.ParseSEO(bytes.NewReader(body)))
+			}
+		}
+
 		if pageReport.BrokenLinks == nil {
 			pageReport.BrokenLinks = make([]BrokenLink, 0)
 		}

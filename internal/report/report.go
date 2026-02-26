@@ -53,9 +53,6 @@ func NewPageReport(url string, depth int) PageReport {
 		URL:          url,
 		Depth:        depth,
 		DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
-		BrokenLinks:  make([]BrokenLink, 0),
-		SEO:          &SEOReport{},
-		Assets:       make([]Asset, 0),
 	}
 }
 
