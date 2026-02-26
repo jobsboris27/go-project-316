@@ -90,6 +90,14 @@ func NormalizeURL(u *url.URL) string {
 	return normalized
 }
 
+func NormalizeURLFromItem(urlStr string) string {
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return urlStr
+	}
+	return NormalizeURL(u)
+}
+
 func ResolveURL(base *url.URL, link string) string {
 	if link == "" {
 		return ""
