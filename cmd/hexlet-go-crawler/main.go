@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"code/internal/crawler"
+	"code/crawler"
 	"github.com/urfave/cli/v3"
 )
 
