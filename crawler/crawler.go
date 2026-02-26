@@ -300,7 +300,6 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 		}
 	} else {
 		pageReport.RawBody = nil
-		pageReport.SEO = &SEOReport{}
 	}
 
 	return pageReport
