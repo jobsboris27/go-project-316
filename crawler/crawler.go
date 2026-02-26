@@ -283,12 +283,8 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int, r
 		if err == nil {
 			pageReport.RawBody = body
 			pageReport.SEO = parser.ParseSEO(bytes.NewReader(body))
-			pageReport.BrokenLinks = make([]BrokenLink, 0)
-			links := parser.CheckLinks(ctx, pageURL, body, rootHost, opts.Concurrency)
-			pageReport.BrokenLinks = append(pageReport.BrokenLinks, links...)
-			pageReport.Assets = make([]Asset, 0)
-			assets := parser.CheckAssets(ctx, pageURL, body, opts.Concurrency)
-			pageReport.Assets = append(pageReport.Assets, assets...)
+			pageReport.BrokenLinks = parser.CheckLinks(ctx, pageURL, body, rootHost, opts.Concurrency)
+			pageReport.Assets = parser.CheckAssets(ctx, pageURL, body, opts.Concurrency)
 		}
 	} else if strings.Contains(contentType, "application/xml") || strings.Contains(contentType, "text/xml") {
 		body, err := io.ReadAll(resp.Body)
