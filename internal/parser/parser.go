@@ -2,8 +2,10 @@ package parser
 
 import (
 	"io"
+	"net/url"
 	"strings"
 
+	"code/internal/shared"
 	"golang.org/x/net/html"
 )
 
@@ -178,4 +180,81 @@ func ParseAssets(r io.Reader) []AssetInfo {
 	walk(doc)
 
 	return assets
+}
+
+func ExtractLinks(htmlContent string, baseURL *url.URL) []string {
+	links := []string{}
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		return links
+	}
+
+	var extract func(*html.Node)
+	extract = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "a" {
+			for _, attr := range n.Attr {
+				if attr.Key == "href" {
+					if link := shared.ResolveURL(baseURL, attr.Val); link != "" {
+						links = append(links, link)
+					}
+					break
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			extract(c)
+		}
+	}
+	extract(doc)
+	return links
+}
+
+func ExtractAssets(htmlContent string, baseURL *url.URL) []AssetInfo {
+	assets := []AssetInfo{}
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		return assets
+	}
+
+	var extract func(*html.Node)
+	extract = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "img":
+				if src := getAttr(n, "src"); src != "" {
+					if resolved := shared.ResolveURL(baseURL, src); resolved != "" {
+						assets = append(assets, AssetInfo{URL: resolved, Type: "image"})
+					}
+				}
+			case "script":
+				if src := getAttr(n, "src"); src != "" {
+					if resolved := shared.ResolveURL(baseURL, src); resolved != "" {
+						assets = append(assets, AssetInfo{URL: resolved, Type: "script"})
+					}
+				}
+			case "link":
+				if rel := getAttr(n, "rel"); rel == "stylesheet" {
+					if href := getAttr(n, "href"); href != "" {
+						if resolved := shared.ResolveURL(baseURL, href); resolved != "" {
+							assets = append(assets, AssetInfo{URL: resolved, Type: "style"})
+						}
+					}
+				}
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			extract(c)
+		}
+	}
+	extract(doc)
+	return assets
+}
+
+func getAttr(n *html.Node, key string) string {
+	for _, attr := range n.Attr {
+		if attr.Key == key {
+			return attr.Val
+		}
+	}
+	return ""
 }

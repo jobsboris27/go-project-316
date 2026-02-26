@@ -189,6 +189,7 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int) r
 	if err := ctx.Err(); err != nil {
 		pageReport.Status = "error"
 		pageReport.Error = err.Error()
+		pageReport.SEO = &SEOReport{}
 		return pageReport
 	}
 
@@ -196,6 +197,7 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int) r
 	if err != nil {
 		pageReport.Status = "error"
 		pageReport.Error = err.Error()
+		pageReport.SEO = &SEOReport{}
 		return pageReport
 	}
 
@@ -240,6 +242,7 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int) r
 		} else {
 			pageReport.Error = err.Error()
 		}
+		pageReport.SEO = &SEOReport{}
 		return pageReport
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -261,6 +264,14 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int) r
 		if err == nil {
 			pageReport.RawBody = body
 			pageReport.SEO = (*report.SEOReport)(parser.ParseSEO(bytes.NewReader(body)))
+			pageURLParsed, _ := url.Parse(pageURL)
+			assetInfos := parser.ExtractAssets(string(body), pageURLParsed)
+			for _, ai := range assetInfos {
+				pageReport.Assets = append(pageReport.Assets, Asset{
+					URL:  ai.URL,
+					Type: ai.Type,
+				})
+			}
 			pageReport.BrokenLinks = toBrokenLinks(checker.CheckLinks(ctx, pageURL, body, checkerCfg))
 			pageReport.Assets = toAssets(checker.CheckAssets(ctx, pageURL, body, checkerCfg))
 		}
@@ -283,10 +294,6 @@ func analyzePage(ctx context.Context, opts Options, pageURL string, depth int) r
 		if pageReport.Assets == nil {
 			pageReport.Assets = make([]Asset, 0)
 		}
-		if pageReport.SEO == nil {
-			pageReport.SEO = &SEOReport{}
-		}
-	} else {
 		if pageReport.SEO == nil {
 			pageReport.SEO = &SEOReport{}
 		}
