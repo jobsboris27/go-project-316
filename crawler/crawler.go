@@ -26,8 +26,8 @@ type Options struct {
 	HTTPClient  *http.Client
 }
 
-type BrokenLink = report.BrokenLink
-type Asset = report.Asset
+type BrokenLink = checker.BrokenLink
+type Asset = checker.Asset
 type SEOReport = report.SEOReport
 type PageReport = report.PageReport
 type Report = report.Report
@@ -37,7 +37,8 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	rootURL, err := shared.ParseAndValidateURL(opts.URL)
 	if err != nil {
-		return report.Marshal(report.NewErrorReport(opts.URL, opts.Depth, err.Error()), opts.IndentJSON)
+		errorReport := report.NewErrorReport(opts.URL, opts.Depth, err.Error())
+		return errorReport.Encode(opts.IndentJSON)
 	}
 
 	normalizedRootURL := opts.URL
@@ -82,7 +83,7 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 			defer func() { <-semaphore }()
 
 			normalizedJobURL := shared.NormalizeURLFromItem(jobURL)
-			result := worker.ProcessURL(ctx, normalizedJobURL, jobDepth, rootURL.Host, cfg, checkerCfg)
+			result := worker.ProcessURL(ctx, normalizedJobURL, jobDepth, cfg, checkerCfg)
 			builder.AddPage(result.Page)
 
 			if result.ShouldQueue {
@@ -104,7 +105,8 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 		}(item.URL, item.Depth)
 	}
 
-	return builder.Encode(opts.IndentJSON)
+	finalReport := builder.Build()
+	return finalReport.Encode(opts.IndentJSON)
 }
 
 func normalizeOptions(opts *Options) worker.Config {

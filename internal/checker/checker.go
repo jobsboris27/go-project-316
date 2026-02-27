@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"code/internal/parser"
-	"code/internal/shared"
 )
 
 type BrokenLink struct {
@@ -35,233 +34,164 @@ type Config struct {
 	HTTPClient  *http.Client
 }
 
-func CheckLinks(ctx context.Context, pageURL string, body []byte, cfg Config) []BrokenLink {
-	baseURL, err := url.Parse(pageURL)
+func (c Config) client() *http.Client {
+	if c.HTTPClient != nil {
+		return c.HTTPClient
+	}
+	return &http.Client{Timeout: c.Timeout}
+}
+
+func doRequest(ctx context.Context, client *http.Client, method, target string, userAgent string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, method, target, nil)
 	if err != nil {
-		return nil
+		return nil, err
+	}
+	if userAgent != "" {
+		req.Header.Set("User-Agent", userAgent)
+	}
+	return client.Do(req)
+}
+
+func headWithFallback(ctx context.Context, cfg Config, target string) (*http.Response, error) {
+	client := cfg.client()
+
+	resp, err := doRequest(ctx, client, http.MethodHead, target, cfg.UserAgent)
+	if err == nil {
+		return resp, nil
 	}
 
-	links, _ := parser.ParseHTMLLinks(bytes.NewReader(body))
-	absoluteLinks := make([]string, 0)
+	return doRequest(ctx, client, http.MethodGet, target, cfg.UserAgent)
+}
 
-	for _, link := range links {
-		absoluteURL := shared.ResolveURL(baseURL, link)
-		if absoluteURL != "" && shared.IsValidScheme(absoluteURL) {
-			absoluteLinks = append(absoluteLinks, absoluteURL)
-		}
+func runPool[T any, R any](
+	ctx context.Context,
+	concurrency int,
+	input []T,
+	worker func(context.Context, T) R,
+) []R {
+
+	if concurrency <= 0 {
+		concurrency = 5
 	}
 
-	if len(absoluteLinks) == 0 {
-		return make([]BrokenLink, 0)
-	}
-
-	semaphore := make(chan struct{}, cfg.Concurrency)
+	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
-	var brokenMu sync.Mutex
-	broken := make([]BrokenLink, 0)
 
-	for _, link := range absoluteLinks {
+	results := make([]R, len(input))
+
+	for i, item := range input {
 		select {
 		case <-ctx.Done():
 			continue
 		default:
 		}
 
-		semaphore <- struct{}{}
+		sem <- struct{}{}
 		wg.Add(1)
 
-		go func(linkURL string) {
+		go func(i int, val T) {
 			defer wg.Done()
-			defer func() { <-semaphore }()
+			defer func() { <-sem }()
 
-			brokenLink := CheckLink(ctx, linkURL, cfg)
-			if brokenLink != nil {
-				brokenMu.Lock()
-				broken = append(broken, *brokenLink)
-				brokenMu.Unlock()
-			}
-		}(link)
+			results[i] = worker(ctx, val)
+		}(i, item)
 	}
 
 	wg.Wait()
+	return results
+}
 
+func CheckLinks(ctx context.Context, pageURL string, body []byte, cfg Config) []BrokenLink {
+	baseURL, err := url.Parse(pageURL)
+	if err != nil {
+		return nil
+	}
+
+	links, _ := parser.ExtractLinks(bytes.NewReader(body), baseURL)
+	if len(links) == 0 {
+		return []BrokenLink{}
+	}
+
+	results := runPool(ctx, cfg.Concurrency, links, func(ctx context.Context, link string) BrokenLink {
+		return checkLink(ctx, link, cfg)
+	})
+
+	broken := make([]BrokenLink, 0)
+	for _, r := range results {
+		if r.Error != "" || r.StatusCode >= 400 {
+			broken = append(broken, r)
+		}
+	}
 	return broken
 }
 
-func CheckLink(ctx context.Context, linkURL string, cfg Config) *BrokenLink {
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, linkURL, nil)
+func checkLink(ctx context.Context, link string, cfg Config) BrokenLink {
+	resp, err := headWithFallback(ctx, cfg, link)
 	if err != nil {
-		return &BrokenLink{
-			URL:   linkURL,
-			Error: shared.FormatError("failed to create request: %v", err),
-		}
-	}
-
-	if cfg.UserAgent != "" {
-		req.Header.Set("User-Agent", cfg.UserAgent)
-	}
-
-	client := cfg.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: cfg.Timeout}
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		getReq, getErr := http.NewRequestWithContext(ctx, http.MethodGet, linkURL, nil)
-		if getErr == nil {
-			if cfg.UserAgent != "" {
-				getReq.Header.Set("User-Agent", cfg.UserAgent)
-			}
-			getResp, getErr := client.Do(getReq)
-			if getErr != nil {
-				return &BrokenLink{
-					URL:   linkURL,
-					Error: err.Error(),
-				}
-			}
-			defer func() { _ = getResp.Body.Close() }()
-
-			if getResp.StatusCode >= 400 {
-				return &BrokenLink{
-					URL:        linkURL,
-					StatusCode: getResp.StatusCode,
-				}
-			}
-			return nil
-		}
-
-		return &BrokenLink{
-			URL:   linkURL,
-			Error: err.Error(),
-		}
+		return BrokenLink{URL: link, Error: err.Error()}
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 400 {
-		return &BrokenLink{
-			URL:        linkURL,
+		return BrokenLink{
+			URL:        link,
 			StatusCode: resp.StatusCode,
+			Error:      http.StatusText(resp.StatusCode),
 		}
 	}
-
-	return nil
+	return BrokenLink{}
 }
 
 func CheckAssets(ctx context.Context, pageURL string, body []byte, cfg Config) []Asset {
 	baseURL, err := url.Parse(pageURL)
 	if err != nil {
-		return make([]Asset, 0)
+		return []Asset{}
 	}
 
-	assetTags := parser.ParseAssets(bytes.NewReader(body))
-	if len(assetTags) == 0 {
-		return make([]Asset, 0)
+	assetInfos, _ := parser.ExtractAssets(bytes.NewReader(body), baseURL)
+	if len(assetInfos) == 0 {
+		return []Asset{}
 	}
 
-	assetCache := make(map[string]Asset)
-	assets := make([]Asset, 0)
-	var mu sync.Mutex
-
-	semaphore := make(chan struct{}, cfg.Concurrency)
-	var wg sync.WaitGroup
-
-	for _, tag := range assetTags {
-		absoluteURL := shared.ResolveURL(baseURL, tag.URL)
-		if absoluteURL == "" || !shared.IsValidScheme(absoluteURL) {
-			continue
-		}
-
-		mu.Lock()
-		if _, exists := assetCache[absoluteURL]; exists {
-			mu.Unlock()
-			continue
-		}
-		mu.Unlock()
-
-		semaphore <- struct{}{}
-		wg.Add(1)
-
-		go func(assetURL, assetType string) {
-			defer wg.Done()
-			defer func() { <-semaphore }()
-
-			asset := CheckAsset(ctx, assetURL, assetType, cfg)
-
-			mu.Lock()
-			if _, exists := assetCache[assetURL]; !exists {
-				assetCache[assetURL] = asset
-				assets = append(assets, asset)
-			}
-			mu.Unlock()
-		}(absoluteURL, tag.Type)
+	unique := make(map[string]string)
+	for _, a := range assetInfos {
+		unique[a.URL] = a.Type
 	}
 
-	wg.Wait()
+	input := make([]Asset, 0, len(unique))
+	for u, t := range unique {
+		input = append(input, Asset{URL: u, Type: t})
+	}
 
-	return assets
+	results := runPool(ctx, cfg.Concurrency, input, func(ctx context.Context, a Asset) Asset {
+		return checkAsset(ctx, a, cfg)
+	})
+
+	return results
 }
 
-func CheckAsset(ctx context.Context, assetURL, assetType string, cfg Config) Asset {
-	asset := Asset{
-		URL:  assetURL,
-		Type: assetType,
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodHead, assetURL, nil)
+func checkAsset(ctx context.Context, a Asset, cfg Config) Asset {
+	resp, err := headWithFallback(ctx, cfg, a.URL)
 	if err != nil {
-		asset.Error = err.Error()
-		return asset
-	}
-
-	if cfg.UserAgent != "" {
-		req.Header.Set("User-Agent", cfg.UserAgent)
-	}
-
-	client := cfg.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: cfg.Timeout}
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		getReq, getErr := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
-		if getErr == nil {
-			if cfg.UserAgent != "" {
-				getReq.Header.Set("User-Agent", cfg.UserAgent)
-			}
-			getResp, getErr := client.Do(getReq)
-			if getErr == nil {
-				defer func() { _ = getResp.Body.Close() }()
-				body, _ := io.ReadAll(getResp.Body)
-				asset.StatusCode = getResp.StatusCode
-				asset.SizeBytes = int64(len(body))
-				if getResp.StatusCode >= 400 {
-					asset.Error = http.StatusText(getResp.StatusCode)
-				}
-				return asset
-			}
-		}
-		asset.Error = err.Error()
-		return asset
+		a.Error = err.Error()
+		return a
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	asset.StatusCode = resp.StatusCode
+	a.StatusCode = resp.StatusCode
 
-	contentLength := resp.Header.Get("Content-Length")
-	if contentLength != "" {
-		if size, err := strconv.ParseInt(contentLength, 10, 64); err == nil {
-			asset.SizeBytes = size
+	if cl := resp.Header.Get("Content-Length"); cl != "" {
+		if size, err := strconv.ParseInt(cl, 10, 64); err == nil {
+			a.SizeBytes = size
 		}
 	} else {
 		body, _ := io.ReadAll(resp.Body)
-		asset.SizeBytes = int64(len(body))
+		a.SizeBytes = int64(len(body))
 	}
 
 	if resp.StatusCode >= 400 {
-		asset.Error = http.StatusText(resp.StatusCode)
+		a.Error = http.StatusText(resp.StatusCode)
 	}
 
-	return asset
+	return a
 }

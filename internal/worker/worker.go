@@ -25,29 +25,53 @@ type Config struct {
 }
 
 type Result struct {
-	Page         report.PageReport
-	Links        []string
-	ShouldQueue  bool
-	NextDepth    int
+	Page        report.PageReport
+	Links       []string
+	ShouldQueue bool
+	NextDepth   int
 }
 
-func ProcessURL(ctx context.Context, pageURL string, depth int, rootHost string, cfg Config, checkerCfg checker.Config) Result {
-	normalizedURL := shared.NormalizeURLFromItem(pageURL)
-	
-	page := report.PageReport{
-		URL:          normalizedURL,
-		Depth:        depth,
-		DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
-	}
+func ProcessURL(
+	ctx context.Context,
+	pageURL string,
+	depth int,
+	cfg Config,
+	checkerCfg checker.Config,
+) Result {
 
+	page := newPageReport(pageURL, depth)
+
+	resp, err := fetchWithRetry(ctx, pageURL, cfg)
+	if err != nil {
+		return errorResult(page, err)
+	}
+	if resp == nil {
+		return errorResult(page, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	page.HTTPStatus = resp.StatusCode
+	page.Status = "ok"
+
+	contentType := resp.Header.Get("Content-Type")
+
+	switch {
+	case strings.Contains(contentType, "text/html"):
+		return handleHTML(ctx, page, resp.Body, pageURL, depth, cfg, checkerCfg)
+
+	case strings.Contains(contentType, "application/xml"),
+		strings.Contains(contentType, "text/xml"):
+		return handleXML(page, resp.Body)
+
+	default:
+		return finalize(page)
+	}
+}
+
+func fetchWithRetry(ctx context.Context, pageURL string, cfg Config) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
-		page.Status = "error"
-		page.Error = err.Error()
-		page.SEO = &report.SEOReport{}
-		page.BrokenLinks = nil
-		page.Assets = nil
-		return Result{Page: page}
+		return nil, err
 	}
 
 	if cfg.UserAgent != "" {
@@ -59,87 +83,108 @@ func ProcessURL(ctx context.Context, pageURL string, depth int, rootHost string,
 	maxAttempts := cfg.Retries + 1
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
+
 		if attempt > 0 {
 			select {
 			case <-time.After(100 * time.Millisecond):
 			case <-ctx.Done():
-				page.Status = "error"
-				page.Error = ctx.Err().Error()
-				page.SEO = &report.SEOReport{}
-				page.BrokenLinks = nil
-				page.Assets = nil
-				return Result{Page: page}
+				return nil, ctx.Err()
 			}
 		}
 
 		resp, err = cfg.HTTPClient.Do(req)
-		if err == nil {
-			if resp.StatusCode < 500 && resp.StatusCode != 429 {
-				break
-			}
-			if resp.StatusCode >= 500 || resp.StatusCode == 429 {
-				lastErr = nil
-				continue
-			}
-			break
+		if err != nil {
+			lastErr = err
+			continue
 		}
 
-		lastErr = err
+		if resp.StatusCode >= 500 || resp.StatusCode == 429 {
+			lastErr = nil
+			continue
+		}
+
+		return resp, nil
 	}
 
+	if resp != nil {
+		return resp, lastErr
+	}
+
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, err
+}
+
+func handleHTML(
+	ctx context.Context,
+	page report.PageReport,
+	body io.Reader,
+	pageURL string,
+	depth int,
+	cfg Config,
+	checkerCfg checker.Config,
+) Result {
+
+	raw, err := io.ReadAll(body)
 	if err != nil {
-		page.Status = "error"
-		if lastErr != nil {
-			page.Error = lastErr.Error()
-		} else {
-			page.Error = err.Error()
-		}
-		page.HTTPStatus = 0
-		page.SEO = &report.SEOReport{}
-		page.BrokenLinks = nil
-		page.Assets = nil
-		return Result{Page: page}
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	page.HTTPStatus = resp.StatusCode
-	page.Status = "ok"
-
-	contentType := resp.Header.Get("Content-Type")
-
-	if strings.Contains(contentType, "text/html") {
-		body, err := io.ReadAll(resp.Body)
-		if err == nil {
-			page.SEO = (*report.SEOReport)(parser.ParseSEO(bytes.NewReader(body)))
-			pageURLParsed, _ := url.Parse(pageURL)
-
-			links := parser.ExtractLinks(string(body), pageURLParsed)
-			brokenLinks := checker.CheckLinks(ctx, pageURL, body, checkerCfg)
-			for _, bl := range brokenLinks {
-				page.BrokenLinks = append(page.BrokenLinks, report.BrokenLink(bl))
-			}
-			assets := checker.CheckAssets(ctx, pageURL, body, checkerCfg)
-			for _, a := range assets {
-				page.Assets = append(page.Assets, report.Asset(a))
-			}
-
-			page.BrokenLinks = dedupeBrokenLinks(page.BrokenLinks)
-			page.Assets = dedupeAssets(page.Assets)
-
-			return Result{
-				Page:        page,
-				Links:       links,
-				ShouldQueue: depth+1 < cfg.Depth,
-				NextDepth:   depth + 1,
-			}
-		}
-	} else if strings.Contains(contentType, "application/xml") || strings.Contains(contentType, "text/xml") {
-		body, err := io.ReadAll(resp.Body)
-		if err == nil {
-			page.SEO = (*report.SEOReport)(parser.ParseSEO(bytes.NewReader(body)))
-		}
+		return errorResult(page, err)
 	}
 
+	page.SEO = (*report.SEOReport)(parser.ParseSEO(bytes.NewReader(raw)))
+
+	pageURLParsed, _ := url.Parse(pageURL)
+
+	links, _ := parser.ExtractLinks(bytes.NewReader(raw), pageURLParsed)
+
+	brokenLinks := checker.CheckLinks(ctx, pageURL, raw, checkerCfg)
+	for _, bl := range brokenLinks {
+		page.BrokenLinks = append(page.BrokenLinks, report.BrokenLink(bl))
+	}
+
+	assets := checker.CheckAssets(ctx, pageURL, raw, checkerCfg)
+	for _, a := range assets {
+		page.Assets = append(page.Assets, report.Asset(a))
+	}
+
+	page.BrokenLinks = uniqueBrokenLinks(page.BrokenLinks)
+	page.Assets = uniqueAssets(page.Assets)
+
+	return Result{
+		Page:        finalize(page).Page,
+		Links:       links,
+		ShouldQueue: depth+1 < cfg.Depth,
+		NextDepth:   depth + 1,
+	}
+}
+
+func handleXML(page report.PageReport, body io.Reader) Result {
+	raw, err := io.ReadAll(body)
+	if err == nil {
+		page.SEO = (*report.SEOReport)(parser.ParseSEO(bytes.NewReader(raw)))
+	}
+	return finalize(page)
+}
+
+func newPageReport(pageURL string, depth int) report.PageReport {
+	return report.PageReport{
+		URL:          shared.NormalizeURLFromItem(pageURL),
+		Depth:        depth,
+		DiscoveredAt: time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+func errorResult(page report.PageReport, err error) Result {
+	page.Status = "error"
+	if err != nil {
+		page.Error = err.Error()
+	} else {
+		page.Error = "unknown error"
+	}
+	return finalize(page)
+}
+
+func finalize(page report.PageReport) Result {
 	if page.BrokenLinks == nil {
 		page.BrokenLinks = []report.BrokenLink{}
 	}
@@ -149,13 +194,12 @@ func ProcessURL(ctx context.Context, pageURL string, depth int, rootHost string,
 	if page.SEO == nil {
 		page.SEO = &report.SEOReport{}
 	}
-
 	return Result{Page: page}
 }
 
-func dedupeBrokenLinks(links []report.BrokenLink) []report.BrokenLink {
+func uniqueBrokenLinks(links []report.BrokenLink) []report.BrokenLink {
 	seen := make(map[string]bool)
-	result := make([]report.BrokenLink, 0)
+	result := make([]report.BrokenLink, 0, len(links))
 	for _, link := range links {
 		if !seen[link.URL] {
 			seen[link.URL] = true
@@ -165,9 +209,9 @@ func dedupeBrokenLinks(links []report.BrokenLink) []report.BrokenLink {
 	return result
 }
 
-func dedupeAssets(assets []report.Asset) []report.Asset {
+func uniqueAssets(assets []report.Asset) []report.Asset {
 	seen := make(map[string]bool)
-	result := make([]report.Asset, 0)
+	result := make([]report.Asset, 0, len(assets))
 	for _, asset := range assets {
 		if !seen[asset.URL] {
 			seen[asset.URL] = true
