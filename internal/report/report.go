@@ -20,10 +20,10 @@ type PageReport struct {
 	HTTPStatus   int          `json:"http_status"`
 	Status       string       `json:"status"`
 	Error        string       `json:"error,omitempty"`
-	BrokenLinks  []BrokenLink `json:"broken_links,omitempty"`
+	BrokenLinks  []BrokenLink `json:"broken_links"`
 	DiscoveredAt string       `json:"discovered_at"`
-	SEO          *SEOReport   `json:"seo,omitempty"`
-	Assets       []Asset      `json:"assets,omitempty"`
+	SEO          *SEOReport   `json:"seo"`
+	Assets       []Asset      `json:"assets"`
 }
 
 type Report struct {
@@ -90,6 +90,17 @@ func (b *Builder) AddPage(page PageReport) {
 	if page.Error != "" {
 		page.BrokenLinks = nil
 		page.Assets = nil
+		page.SEO = nil
+	} else {
+		if page.BrokenLinks == nil {
+			page.BrokenLinks = []BrokenLink{}
+		}
+		if page.Assets == nil {
+			page.Assets = []Asset{}
+		}
+		if page.SEO == nil {
+			page.SEO = &SEOReport{}
+		}
 	}
 
 	b.report.Pages = append(b.report.Pages, page)

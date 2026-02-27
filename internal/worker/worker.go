@@ -163,6 +163,12 @@ func handleXML(page report.PageReport, body io.Reader) Result {
 	if err == nil {
 		page.SEO = (*report.SEOReport)(parser.ParseSEO(bytes.NewReader(raw)))
 	}
+	if page.Assets == nil {
+		page.Assets = []report.Asset{}
+	}
+	if page.BrokenLinks == nil {
+		page.BrokenLinks = []report.BrokenLink{}
+	}
 	return Result{Page: page}
 }
 
@@ -185,6 +191,15 @@ func errorResult(page report.PageReport, err error) Result {
 }
 
 func finalize(page report.PageReport) Result {
+	if page.Assets == nil {
+		page.Assets = []report.Asset{}
+	}
+	if page.BrokenLinks == nil {
+		page.BrokenLinks = []report.BrokenLink{}
+	}
+	if page.SEO == nil {
+		page.SEO = &report.SEOReport{}
+	}
 	return Result{Page: page}
 }
 
