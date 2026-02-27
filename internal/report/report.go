@@ -90,7 +90,6 @@ func (b *Builder) AddPage(page PageReport) {
 	if page.Error != "" {
 		page.BrokenLinks = nil
 		page.Assets = nil
-		page.SEO = nil
 	} else {
 		if page.BrokenLinks == nil {
 			page.BrokenLinks = []BrokenLink{}
@@ -98,9 +97,9 @@ func (b *Builder) AddPage(page PageReport) {
 		if page.Assets == nil {
 			page.Assets = []Asset{}
 		}
-		if page.SEO == nil {
-			page.SEO = &SEOReport{}
-		}
+	}
+	if page.SEO == nil {
+		page.SEO = &SEOReport{}
 	}
 
 	b.report.Pages = append(b.report.Pages, page)
