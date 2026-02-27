@@ -151,7 +151,7 @@ func handleHTML(
 	page.Assets = uniqueAssets(page.Assets)
 
 	return Result{
-		Page:        finalize(page).Page,
+		Page:        page,
 		Links:       links,
 		ShouldQueue: depth+1 < cfg.Depth,
 		NextDepth:   depth + 1,
@@ -163,7 +163,7 @@ func handleXML(page report.PageReport, body io.Reader) Result {
 	if err == nil {
 		page.SEO = (*report.SEOReport)(parser.ParseSEO(bytes.NewReader(raw)))
 	}
-	return finalize(page)
+	return Result{Page: page}
 }
 
 func newPageReport(pageURL string, depth int) report.PageReport {
@@ -185,15 +185,6 @@ func errorResult(page report.PageReport, err error) Result {
 }
 
 func finalize(page report.PageReport) Result {
-	if page.BrokenLinks == nil {
-		page.BrokenLinks = []report.BrokenLink{}
-	}
-	if page.Assets == nil {
-		page.Assets = []report.Asset{}
-	}
-	if page.SEO == nil {
-		page.SEO = &report.SEOReport{}
-	}
 	return Result{Page: page}
 }
 
