@@ -50,11 +50,13 @@ func Analyze(ctx context.Context, opts Options) ([]byte, error) {
 
 	builder := report.NewBuilder(rootURL.String(), opts.Depth)
 
+	linkCache := checker.NewLinkCache()
 	checkerCfg := checker.Config{
 		UserAgent:   opts.UserAgent,
 		Timeout:     opts.Timeout,
 		Concurrency: opts.Concurrency,
 		HTTPClient:  opts.HTTPClient,
+		LinkCache:   linkCache,
 	}
 
 	for {

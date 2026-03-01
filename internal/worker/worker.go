@@ -86,7 +86,7 @@ func fetchWithRetry(ctx context.Context, pageURL string, cfg Config) (*http.Resp
 
 		if attempt > 0 {
 			select {
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(time.Duration(attempt) * 200 * time.Millisecond):
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}

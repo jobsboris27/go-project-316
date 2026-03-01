@@ -32,6 +32,7 @@ type Config struct {
 	Timeout     time.Duration
 	Concurrency int
 	HTTPClient  *http.Client
+	LinkCache   *LinkCache
 }
 
 func (c Config) client() *http.Client {
@@ -126,20 +127,38 @@ func CheckLinks(ctx context.Context, pageURL string, body []byte, cfg Config) []
 }
 
 func checkLink(ctx context.Context, link string, cfg Config) BrokenLink {
+	if cfg.LinkCache != nil {
+		if result, ok := cfg.LinkCache.Get(link); ok {
+			return result
+		}
+	}
+
 	resp, err := headWithFallback(ctx, cfg, link)
 	if err != nil {
-		return BrokenLink{URL: link, Error: err.Error()}
+		result := BrokenLink{URL: link, Error: err.Error()}
+		if cfg.LinkCache != nil {
+			cfg.LinkCache.Set(link, result)
+		}
+		return result
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	var result BrokenLink
 	if resp.StatusCode >= 400 {
-		return BrokenLink{
+		result = BrokenLink{
 			URL:        link,
 			StatusCode: resp.StatusCode,
 			Error:      http.StatusText(resp.StatusCode),
 		}
+	} else {
+		result = BrokenLink{}
 	}
-	return BrokenLink{}
+
+	if cfg.LinkCache != nil {
+		cfg.LinkCache.Set(link, result)
+	}
+
+	return result
 }
 
 func CheckAssets(ctx context.Context, pageURL string, body []byte, cfg Config) []Asset {
